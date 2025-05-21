@@ -2,6 +2,7 @@
 local initFrame = CreateFrame("Frame")
 local configFrame = nil  -- Store the config frame globally
 local minimapButton = nil  -- Store the minimap button globally
+local ignoredMessages = {}  -- Initialize the table for ignored messages
 AutoWhisperConfig = AutoWhisperConfig or {}
 
 -- Variables for cooldown tracking
@@ -276,6 +277,76 @@ local function CreateConfigUI()
     return frame
 end
 
+-- Create Dialog Frame
+local dialogFrame = nil
+local function CreateDialogFrame()
+    local frame = CreateFrame("Frame", "AutoWhisperDialogFrame", UIParent)
+    frame:SetWidth(300)
+    frame:SetHeight(150)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    frame:EnableMouse(true)
+    frame:SetMovable(true)
+    
+    -- Add background
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true,
+        tileSize = 32,
+        edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+
+    -- Message text
+    local messageText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    messageText:SetPoint("TOP", 0, -20)
+    messageText:SetWidth(260)
+    messageText:SetJustifyH("CENTER")
+    frame.messageText = messageText
+
+    -- Author text
+    local authorText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    authorText:SetPoint("TOP", messageText, "BOTTOM", 0, -10)
+    authorText:SetWidth(260)
+    authorText:SetJustifyH("CENTER")
+    frame.authorText = authorText
+
+    -- Send button
+    local sendButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    sendButton:SetWidth(100)
+    sendButton:SetHeight(25)
+    sendButton:SetPoint("BOTTOMLEFT", 20, 20)
+    sendButton:SetText("Send")
+    frame.sendButton = sendButton
+
+    -- Ignore button
+    local ignoreButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    ignoreButton:SetWidth(100)
+    ignoreButton:SetHeight(25)
+    ignoreButton:SetPoint("BOTTOMRIGHT", -20, 20)
+    ignoreButton:SetText("Ignore")
+    ignoreButton:SetScript("OnClick", function()
+        -- Add current message to ignored list
+        local currentMessage = frame.messageText:GetText()
+        if currentMessage then
+            table.insert(ignoredMessages, string.lower(currentMessage))
+            DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Message ignored for this session", 1, 0.5, 0)
+        end
+        frame:Hide()
+    end)
+
+    -- Make frame draggable
+    frame:SetScript("OnMouseDown", function()
+        this:StartMoving()
+    end)
+    frame:SetScript("OnMouseUp", function()
+        this:StopMovingOrSizing()
+    end)
+
+    frame:Hide()
+    return frame
+end
+
 -- Create Minimap Button
 local function CreateMinimapButton()
     local button = CreateFrame("Button", "AutoWhisperMinimapButton", Minimap)
@@ -389,32 +460,61 @@ initFrame:SetScript("OnEvent", function()
         end
 
         if isTargetChannel then
-            -- Check if message contains blacklisted words
-            local containsBlacklist = false
-            for _, word in ipairs(AutoWhisperConfig.blacklistWords or {}) do
-                if string.find(message, string.lower(word)) then
-                    containsBlacklist = true
+            local message = string.lower(arg1)
+            
+            -- Check if message is ignored
+            local isIgnored = false
+            for _, ignoredMsg in ipairs(ignoredMessages) do
+                if message == ignoredMsg then
+                    isIgnored = true
                     break
                 end
             end
-            
-            -- Check if message contains any of the selected raids
-            local containsRaid = false
-            for _, raid in ipairs(AutoWhisperConfig.selectedRaids or {}) do
-                if string.find(message, string.lower(raid)) then
-                    containsRaid = true
-                    break
+
+            -- Only proceed if message is not ignored
+            if not isIgnored then
+                -- Check if message contains blacklisted words
+                local containsBlacklist = false
+                for _, word in ipairs(AutoWhisperConfig.blacklistWords or {}) do
+                    if string.find(message, string.lower(word)) then
+                        containsBlacklist = true
+                        break
+                    end
                 end
-            end
-            
-            if not containsBlacklist and containsRaid then
-                -- Check cooldown
-                if currentTime - lastWhisperTime >= AutoWhisperConfig.cooldown then
-                    SendChatMessage(AutoWhisperConfig.replyMessage, "WHISPER", nil, author)
-                    lastWhisperTime = currentTime
-                else
-                    local remainingTime = math.ceil(AutoWhisperConfig.cooldown - (currentTime - lastWhisperTime))
-                    DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: On cooldown for " .. remainingTime .. " seconds", 1, 0.5, 0)
+                
+                -- Check if message contains any of the selected raids
+                local containsRaid = false
+                for _, raid in ipairs(AutoWhisperConfig.selectedRaids or {}) do
+                    if string.find(message, string.lower(raid)) then
+                        containsRaid = true
+                        break
+                    end
+                end
+                
+                if not containsBlacklist and containsRaid then
+                    -- Check cooldown
+                    if currentTime - lastWhisperTime >= AutoWhisperConfig.cooldown then
+                        -- Create dialog frame if it doesn't exist
+                        if not dialogFrame then
+                            dialogFrame = CreateDialogFrame()
+                        end
+
+                        -- Update dialog text
+                        dialogFrame.messageText:SetText(arg1)
+                        dialogFrame.authorText:SetText("From: " .. author)
+
+                        -- Set up send button action
+                        dialogFrame.sendButton:SetScript("OnClick", function()
+                            SendChatMessage(AutoWhisperConfig.replyMessage, "WHISPER", nil, author)
+                            lastWhisperTime = currentTime
+                            dialogFrame:Hide()
+                        end)
+
+                        dialogFrame:Show()
+                    else
+                        local remainingTime = math.ceil(AutoWhisperConfig.cooldown - (currentTime - lastWhisperTime))
+                        DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: On cooldown for " .. remainingTime .. " seconds", 1, 0.5, 0)
+                    end
                 end
             end
         end
