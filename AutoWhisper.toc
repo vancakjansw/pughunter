@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: AutoWhisper
+## Notes: Automatically responds to messages containing specific text
+## Author: Jan Vancak
+## Version: 1.0
+## SavedVariables: AutoWhisperConfig
+
+AutoWhisper.lua
