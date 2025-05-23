@@ -287,26 +287,41 @@ local function CreateConfigUI()
     saveButton:SetPoint("BOTTOMLEFT", 20, 15)
     saveButton:SetText("Save")
     saveButton:SetScript("OnClick", function()
-        AutoWhisperConfig.replyMessage = replyMessageEdit:GetText()
-        
-        -- Split channel names by comma and trim whitespace
+        -- Save reply message with default
+        AutoWhisperConfig.replyMessage = replyMessageEdit:GetText() or "hi, mm hunt?"
+
+        -- Save channel names
         local channelNames = {}
-        local index = 1
-        for channel in string.gmatch(channelNamesEdit:GetText(), "[^,]+") do
-            channelNames[index] = trim(channel)
-            index = index + 1
+        local channelText = channelNamesEdit:GetText() or ""
+        for channel in string.gfind(channelText, "[^,]+") do
+            local trimmedChannel = trim(channel)
+            if trimmedChannel ~= "" then
+                table.insert(channelNames, trimmedChannel)
+            end
+        end
+        if table.getn(channelNames) == 0 then
+            channelNames = {"World", "LookingForGroup"}
         end
         AutoWhisperConfig.targetChannelNames = channelNames
-        
-        -- Split and save blacklist words
+
+        -- Save blacklist words
         local blacklist = {}
-        for word in string.gmatch(blacklistEdit:GetText(), "[^,]+") do
-            table.insert(blacklist, string.lower(trim(word)))
+        local blacklistText = blacklistEdit:GetText() or ""
+        for word in string.gfind(blacklistText, "[^,]+") do
+            local trimmedWord = string.lower(trim(word))
+            if trimmedWord ~= "" then
+                table.insert(blacklist, trimmedWord)
+            end
+        end
+        if table.getn(blacklist) == 0 then
+            blacklist = {"lfr", "lfg", "guild", "raids", "recruit", "igrokov", "nabor", " ru ", "wts", "recluta"}
         end
         AutoWhisperConfig.blacklistWords = blacklist
-        
+
+        -- Save checkbox states
         AutoWhisperConfig.autoJoin = autoJoinCheckbox:GetChecked()
         AutoWhisperConfig.debug = debugCheckbox:GetChecked()
+
         DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Settings saved!", 0, 1, 0)
     end)
     
