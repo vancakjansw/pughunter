@@ -1,19 +1,59 @@
 -- Create a frame for initialization and event handling
 local initFrame = CreateFrame("Frame")
-local configFrame = nil  -- Store the config frame globally
-local minimapButton = nil  -- Store the minimap button globally
-local ignoredMessages = {}  -- Initialize the table for ignored messages
-local ignoredAuthors = {}  -- Initialize the table for ignored authors
+local configFrame = nil
+local minimapButton = nil
+local ignoredMessages = {}
+local ignoredAuthors = {}
+local pendingMessages = {}
+local debugMessages = {}
+local debugFrame = nil
 AutoWhisperConfig = AutoWhisperConfig or {}
 
--- Variables for cooldown tracking
-local lastWhisperTime = 0
+-- Debug message function - must be defined before use
+local function AddDebugMessage(message, r, g, b)
+    if not AutoWhisperConfig.debug then return end
+    
+    -- Add timestamp to message
+    local timestamp = date("%H:%M:%S")
+    local coloredMessage = string.format("|cff%02x%02x%02x%s|r", r*255, g*255, b*255, message)
+    table.insert(debugMessages, "[" .. timestamp .. "] " .. coloredMessage)
+    
+    -- Keep only last 100 messages
+    while table.getn(debugMessages) > 100 do
+        table.remove(debugMessages, 1)
+    end
+    
+    -- Update debug frame if it exists
+    if debugFrame and debugFrame:IsVisible() then
+        debugFrame.messageText:SetText(table.concat(debugMessages, "\n"))
+    end
+end
 
--- Add at the top with other local variables
-local pendingMessages = {}  -- Queue to store pending messages
+-- Create slash command to show/hide the config
+SLASH_AUTOWHISPER1 = "/pg"
+SLASH_AUTOWHISPER2 = "/pughunter"
+
+-- Add at the top with other local variables and utility functions
+local function trim(s)
+    if not s then return "" end
+    s = string.gsub(s, "^%s+", "")
+    return string.gsub(s, "%s+$", "")
+end
 
 -- Define raid list globally
 local raidList = {
+    {
+        name = "Upper Blackrock Spire",
+        abbreviation = "UBRS"
+    },
+    {
+        name = "Zul'Gurub",
+        abbreviation = "ZG"
+    },
+    {
+        name = "Ruins of Ahn'Qiraj",
+        abbreviation = "AQ20"
+    },
     {
         name = "Molten Core",
         abbreviation = "MC"
@@ -27,28 +67,20 @@ local raidList = {
         abbreviation = "BWL"
     },
     {
-        name = "Zul'Gurub",
-        abbreviation = "ZG"
-    },
-    {
-        name = "Ruins of Ahn'Qiraj",
-        abbreviation = "AQ20"
-    },
-    {
         name = "Temple of Ahn'Qiraj",
         abbreviation = "AQ40"
     },
     {
-        name = "Karazhan",
+        name = "Karazhan 10 + 40",
         abbreviation = "KARA"
     },
     {
-        name = "Upper Blackrock Spire",
-        abbreviation = "UBRS"
+        name = "Emerald Dream",
+        abbreviation = " ES"
     },
     {
-        name = "Emerald Dream",
-        abbreviation = "ES"
+        name = "Naxxramas",
+        abbreviation = "naxx"
     }
 }
 
@@ -63,16 +95,10 @@ end
 
 -- Create raid checkboxes
 local function CreateRaidCheckboxes(frame)
-    -- Debug output
-    DEFAULT_CHAT_FRAME:AddMessage("Creating raid checkboxes", 1, 1, 0)
-    for i, raid in pairs(raidList) do
-        DEFAULT_CHAT_FRAME:AddMessage("Raid " .. i .. ": " .. (raid and raid.name or "nil"), 1, 1, 0)
-    end
-
     local checkboxGroup = CreateFrame("Frame", nil, frame)
-    checkboxGroup:SetPoint("TOPLEFT", 20, -50)
-    checkboxGroup:SetWidth(460)  -- Made wider to accommodate two columns
-    checkboxGroup:SetHeight(200)
+    checkboxGroup:SetPoint("TOPLEFT", 20, -50)  -- Move up slightly
+    checkboxGroup:SetWidth(460)
+    checkboxGroup:SetHeight(150)  -- Reduce height to make room for input fields
 
     -- Create label
     local label = checkboxGroup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -80,9 +106,9 @@ local function CreateRaidCheckboxes(frame)
     label:SetText("Select Raids:")
 
     local col1X = 0
-    local col2X = 230  -- Start of second column
+    local col2X = 230
     local startY = 0
-    local yOffset = -25  -- Space between checkboxes
+    local yOffset = -20  -- Reduce space between checkboxes
 
     for i = 1, table.getn(raidList) do
         local raid = raidList[i]
@@ -151,7 +177,7 @@ local function CreateConfigUI()
     -- Create the main frame
     local frame = CreateFrame("Frame", "AutoWhisperConfigFrame", UIParent)
     frame:SetWidth(500)  -- Increased from 300 to 500
-    frame:SetHeight(400)  -- Increased from 250 to 400
+    frame:SetHeight(440)  -- Increased from 250 to 400
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     frame:EnableMouse(true)
     frame:SetMovable(true)
@@ -169,67 +195,99 @@ local function CreateConfigUI()
     -- Add title text
     local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOP", 0, -15)
-    title:SetText("AutoWhisper Configuration")
+    title:SetText("PugHunter")
     
     -- Create raid checkboxes
     local raidCheckboxes = CreateRaidCheckboxes(frame)
     
     -- Create input field function
     local function CreateInputField(label, yOffset, defaultText, configKey)
+        -- Create label text
         local text = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         text:SetPoint("TOPLEFT", 20, yOffset)
+        text:SetWidth(200)  -- Fixed width for label
+        text:SetJustifyH("LEFT")
         text:SetText(label)
         
+        -- Create edit box with right alignment
         local editBox = CreateFrame("EditBox", nil, frame)
-        editBox:SetPoint("TOPLEFT", text, "TOPRIGHT", 10, 0)
-        editBox:SetWidth(150)
-        editBox:SetHeight(20)
+        editBox:SetPoint("TOPRIGHT", -20, yOffset)  -- Align to right side
+        editBox:SetWidth(250)  -- Width for input field
+        editBox:SetHeight(24)  -- Increased from 20 to 24
         editBox:SetBackdrop({
             bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
             edgeFile = "Interface\\ChatFrame\\ChatFrameBackground",
-            tile = true, edgeSize = 1, tileSize = 5,
+            tile = true, 
+            edgeSize = 1, 
+            tileSize = 5,
+            insets = { left = 4, right = 4, top = 4, bottom = 4 }  -- Added insets
         })
         editBox:SetBackdropColor(0, 0, 0, 0.5)
         editBox:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
         editBox:SetAutoFocus(false)
         editBox:SetFontObject("GameFontHighlight")
         editBox:SetText(tostring(defaultText or ""))
+        editBox:SetJustifyH("LEFT")
+        editBox:SetTextInsets(6, 6, 3, 3)  -- Add text padding (left, right, top, bottom)
         
         editBox:SetScript("OnEnterPressed", function()
             this:ClearFocus()
         end)
         
+        -- Add tooltip for Channel Names and Blacklist Words
+        if string.find(label, "Channel Names") or string.find(label, "Blacklist Words") then
+            editBox:SetScript("OnEnter", function()
+                GameTooltip:SetOwner(this, "ANCHOR_TOPRIGHT")
+                GameTooltip:AddLine(label, 1, 1, 1)
+                GameTooltip:AddLine("Separate multiple entries with commas", 0.8, 0.8, 0.8)
+                GameTooltip:Show()
+            end)
+            editBox:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+        end
+        
         return editBox
     end
     
-    local toolsOffset = -100
-    -- Create input fields for each setting and store them
-    local replyMessageEdit = CreateInputField("Reply Message:", toolsOffset-80, AutoWhisperConfig.replyMessage or "", "replyMessage")
-    local channelNamesEdit = CreateInputField("Channel Names (comma-separated):", toolsOffset-110, 
+    -- Adjust toolsOffset to start below raid checkboxes
+    local toolsOffset = -220  -- Increase this value to move inputs down
+
+    -- Create input fields for each setting
+    local replyMessageEdit = CreateInputField("Reply Message", toolsOffset, AutoWhisperConfig.replyMessage or "", "replyMessage")
+    local channelNamesEdit = CreateInputField("Channel Names", toolsOffset-30,  -- Removed "(comma-separated)"
         AutoWhisperConfig.targetChannelNames and table.concat(AutoWhisperConfig.targetChannelNames, ",") or "World,LookingForGroup", 
         "targetChannelNames")
-    local cooldownEdit = CreateInputField("Cooldown (seconds):", toolsOffset-140, AutoWhisperConfig.cooldown or 100, "cooldown")
-    local blacklistEdit = CreateInputField("Blacklist Words (comma-separated):", toolsOffset-170,
-        AutoWhisperConfig.blacklistWords and table.concat(AutoWhisperConfig.blacklistWords, ",") or "lfr,lfg,guild",
+    local blacklistEdit = CreateInputField("Blacklist Words", toolsOffset-60,  -- Removed "(comma-separated)"
+        AutoWhisperConfig.blacklistWords and table.concat(AutoWhisperConfig.blacklistWords, ",") or "lfr,lfg,guild,raids,recruit,igrokov,nabor, ru ,wts, 'recluta",
         "blacklistWords")
     
     -- Create auto join checkbox
     local autoJoinCheckbox = CreateFrame("CheckButton", "AutoWhisperAutoJoinCheckbox", frame, "UICheckButtonTemplate")
-    autoJoinCheckbox:SetPoint("TOPLEFT", 20, toolsOffset-170)
+    autoJoinCheckbox:SetPoint("TOPLEFT", 20, toolsOffset-90)
     autoJoinCheckbox:SetChecked(AutoWhisperConfig.autoJoin)
     
     local autoJoinText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     autoJoinText:SetPoint("LEFT", autoJoinCheckbox, "RIGHT", 5, 0)
     autoJoinText:SetText("Auto accept group invites")
     
-    -- Create anti AFK checkbox
-    local antiAfkCheckbox = CreateFrame("CheckButton", "AutoWhisperAntiAfkCheckbox", frame, "UICheckButtonTemplate")
-    antiAfkCheckbox:SetPoint("TOPLEFT", autoJoinCheckbox, "BOTTOMLEFT", 0, -5)
-    antiAfkCheckbox:SetChecked(AutoWhisperConfig.antiAfk)
+    -- Remove anti AFK checkbox and text
+    -- local antiAfkCheckbox = CreateFrame("CheckButton", "AutoWhisperAntiAfkCheckbox", frame, "UICheckButtonTemplate")
+    -- antiAfkCheckbox:SetPoint("TOPLEFT", autoJoinCheckbox, "BOTTOMLEFT", 0, -5)
+    -- antiAfkCheckbox:SetChecked(AutoWhisperConfig.antiAfk)
     
-    local antiAfkText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    antiAfkText:SetPoint("LEFT", antiAfkCheckbox, "RIGHT", 5, 0)
-    antiAfkText:SetText("Anti AFK")
+    -- local antiAfkText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    -- antiAfkText:SetPoint("LEFT", antiAfkCheckbox, "RIGHT", 5, 0)
+    -- antiAfkText:SetText("Anti AFK")
+    
+    -- Add debug checkbox
+    local debugCheckbox = CreateFrame("CheckButton", "AutoWhisperDebugCheckbox", frame, "UICheckButtonTemplate")
+    debugCheckbox:SetPoint("TOPLEFT", autoJoinCheckbox, "BOTTOMLEFT", 0, -5)
+    debugCheckbox:SetChecked(AutoWhisperConfig.debug)
+    
+    local debugText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    debugText:SetPoint("LEFT", debugCheckbox, "RIGHT", 5, 0)
+    debugText:SetText("Enable Debug Mode")
     
     -- Create save button
     local saveButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -239,23 +297,25 @@ local function CreateConfigUI()
     saveButton:SetText("Save")
     saveButton:SetScript("OnClick", function()
         AutoWhisperConfig.replyMessage = replyMessageEdit:GetText()
+        
         -- Split channel names by comma and trim whitespace
         local channelNames = {}
+        local index = 1
         for channel in string.gmatch(channelNamesEdit:GetText(), "[^,]+") do
-            table.insert(channelNames, string.trim(channel))
+            channelNames[index] = trim(channel)
+            index = index + 1
         end
         AutoWhisperConfig.targetChannelNames = channelNames
         
         -- Split and save blacklist words
         local blacklist = {}
         for word in string.gmatch(blacklistEdit:GetText(), "[^,]+") do
-            table.insert(blacklist, string.lower(string.trim(word)))
+            table.insert(blacklist, string.lower(trim(word)))
         end
         AutoWhisperConfig.blacklistWords = blacklist
         
-        AutoWhisperConfig.cooldown = tonumber(cooldownEdit:GetText()) or 100
         AutoWhisperConfig.autoJoin = autoJoinCheckbox:GetChecked()
-        AutoWhisperConfig.antiAfk = antiAfkCheckbox:GetChecked()
+        AutoWhisperConfig.debug = debugCheckbox:GetChecked()  -- Replace antiAfk with debug
         DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Settings saved!", 0, 1, 0)
     end)
     
@@ -319,59 +379,61 @@ CreateDialogFrame = function()
     authorText:SetJustifyH("CENTER")
     frame.authorText = authorText
 
-    -- Send button
+    -- Adjust button widths and positions for 3 buttons
+    local buttonWidth = 90  -- Slightly smaller width
+    local buttonSpacing = 10  -- Space between buttons
+    local bottomMargin = 20  -- Space from bottom of frame
+    
+    -- Send button (left)
     local sendButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    sendButton:SetWidth(80)
+    sendButton:SetWidth(buttonWidth)
     sendButton:SetHeight(25)
-    sendButton:SetPoint("BOTTOMLEFT", 20, 20)
+    sendButton:SetPoint("BOTTOMLEFT", buttonSpacing, bottomMargin)
     sendButton:SetText("Send")
     frame.sendButton = sendButton
+    -- Add tooltip
+    sendButton:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+        GameTooltip:AddLine("Send reply message", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    sendButton:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
 
-    -- Adjust button widths and positions for 3 buttons
-    local buttonWidth = 100
-
-    -- Ignore button (middle)
+    -- Ignore button (middle) - rename to Skip
     local ignoreButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     ignoreButton:SetWidth(buttonWidth)
     ignoreButton:SetHeight(25)
-    ignoreButton:SetPoint("BOTTOM", frame, "BOTTOM", 0, 20)
-    ignoreButton:SetText("Ignore")
-    frame.ignoreButton = ignoreButton  -- Store the reference
-    ignoreButton:SetScript("OnClick", function()
-        local currentMessage = frame.messageText:GetText()
-        if currentMessage then
-            table.insert(ignoredMessages, string.lower(currentMessage))
-            DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Message ignored for this session", 1, 0.5, 0)
-        end
-        table.remove(pendingMessages, 1)
-        frame:Hide()
-        
-        -- Show next message if available
-        if table.getn(pendingMessages) > 0 then
-            ShowNextPendingMessage()
-        end
+    ignoreButton:SetPoint("BOTTOM", frame, "BOTTOM", 0, bottomMargin)
+    ignoreButton:SetText("Skip")  -- Changed from "Ignore" to "Skip"
+    frame.ignoreButton = ignoreButton
+    -- Update tooltip text
+    ignoreButton:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+        GameTooltip:AddLine("Skip current message", 1, 1, 1)  -- Changed from "Ignore" to "Skip"
+        GameTooltip:AddLine("If message changes it will be displayed again", 0.8, 0.8, 0.8)
+        GameTooltip:Show()
+    end)
+    ignoreButton:SetScript("OnLeave", function()
+        GameTooltip:Hide()
     end)
 
-    -- Ignore Author button (right)
+    -- Ignore Author button (right) - rename to Skip Author
     local ignoreAuthorButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
     ignoreAuthorButton:SetWidth(buttonWidth)
     ignoreAuthorButton:SetHeight(25)
-    ignoreAuthorButton:SetPoint("BOTTOMRIGHT", -20, 20)
-    ignoreAuthorButton:SetText("Ignore Author")
-    frame.ignoreAuthorButton = ignoreAuthorButton  -- Store the reference
-    ignoreAuthorButton:SetScript("OnClick", function()
-        local author = string.match(frame.authorText:GetText(), "From: (.+)")
-        if author then
-            table.insert(ignoredAuthors, author)
-            DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Author " .. author .. " ignored for this session", 1, 0.5, 0)
-        end
-        table.remove(pendingMessages, 1)
-        frame:Hide()
-        
-        -- Show next message if available
-        if table.getn(pendingMessages) > 0 then
-            ShowNextPendingMessage()
-        end
+    ignoreAuthorButton:SetPoint("BOTTOMRIGHT", -buttonSpacing, bottomMargin)
+    ignoreAuthorButton:SetText("Skip Author")  -- Changed from "Ignore Author" to "Skip Author"
+    frame.ignoreAuthorButton = ignoreAuthorButton
+    -- Update tooltip text
+    ignoreAuthorButton:SetScript("OnEnter", function()
+        GameTooltip:SetOwner(this, "ANCHOR_TOP")
+        GameTooltip:AddLine("Skip all further messages from this author", 1, 1, 1)  -- Changed from "Ignore" to "Skip"
+        GameTooltip:Show()
+    end)
+    ignoreAuthorButton:SetScript("OnLeave", function()
+        GameTooltip:Hide()
     end)
 
     -- Make frame draggable
@@ -404,13 +466,72 @@ ShowNextPendingMessage = function()
     -- Update send button action
     dialogFrame.sendButton:SetScript("OnClick", function()
         SendChatMessage(AutoWhisperConfig.replyMessage, "WHISPER", nil, currentMsg.author)
-        lastWhisperTime = currentMsg.time
         table.remove(pendingMessages, 1)
         dialogFrame:Hide()
         
         -- Show next message if available
         if table.getn(pendingMessages) > 0 then
             ShowNextPendingMessage()
+        end
+    end)
+
+    -- Skip button action
+    dialogFrame.ignoreButton:SetScript("OnClick", function()
+        local currentMsg = pendingMessages[1]
+        if currentMsg then
+            -- Add to ignored messages
+            table.insert(ignoredMessages, string.lower(currentMsg.message))
+            
+            -- Remove current and all similar messages from queue
+            local i = 1
+            while i <= table.getn(pendingMessages) do
+                if string.lower(pendingMessages[i].message) == string.lower(currentMsg.message) then
+                    table.remove(pendingMessages, i)
+                else
+                    i = i + 1
+                end
+            end
+            
+            if AutoWhisperConfig.debug then
+                AddDebugMessage("Message skipped", 1, 0.5, 0)
+            end
+            
+            dialogFrame:Hide()
+            
+            -- Show next message if available
+            if table.getn(pendingMessages) > 0 then
+                ShowNextPendingMessage()
+            end
+        end
+    end)
+
+    -- Skip Author button action
+    dialogFrame.ignoreAuthorButton:SetScript("OnClick", function()
+        local currentMsg = pendingMessages[1]
+        if currentMsg then
+            -- Add to ignored authors
+            table.insert(ignoredAuthors, currentMsg.author)
+            
+            -- Remove all messages from this author from queue
+            local i = 1
+            while i <= table.getn(pendingMessages) do
+                if pendingMessages[i].author == currentMsg.author then
+                    table.remove(pendingMessages, i)
+                else
+                    i = i + 1
+                end
+            end
+            
+            if AutoWhisperConfig.debug then
+                AddDebugMessage("Author " .. currentMsg.author .. " skipped", 1, 0.5, 0)
+            end
+            
+            dialogFrame:Hide()
+            
+            -- Show next message if available
+            if table.getn(pendingMessages) > 0 then
+                ShowNextPendingMessage()
+            end
         end
     end)
 
@@ -475,6 +596,28 @@ local function CreateMinimapButton()
         GameTooltip:Hide()
     end)
     
+    -- Add debug frame toggle to minimap button right click
+    button:SetScript("OnMouseUp", function(self, button)
+        if button == "LeftButton" then
+            if configFrame:IsVisible() then
+                configFrame:Hide()
+            else
+                configFrame:Show()
+            end
+        elseif button == "RightButton" and AutoWhisperConfig.debug then
+            if not debugFrame then
+                debugFrame = CreateDebugFrame()
+            end
+            
+            if debugFrame:IsVisible() then
+                debugFrame:Hide()
+            else
+                debugFrame.messageText:SetText(table.concat(debugMessages, "\n"))
+                debugFrame:Show()
+            end
+        end
+    end)
+    
     UpdatePosition()
     return button
 end
@@ -494,13 +637,12 @@ initFrame:SetScript("OnEvent", function()
         -- Set default values for any missing config options
         AutoWhisperConfig.targetChannelNames = AutoWhisperConfig.targetChannelNames or {"World", "LookingForGroup"}
         AutoWhisperConfig.replyMessage = AutoWhisperConfig.replyMessage or "hi, mm hunt?"
-        AutoWhisperConfig.cooldown = AutoWhisperConfig.cooldown or 100
         AutoWhisperConfig.minimapPos = AutoWhisperConfig.minimapPos or 45
         AutoWhisperConfig.autoJoin = AutoWhisperConfig.autoJoin or false
-        AutoWhisperConfig.antiAfk = AutoWhisperConfig.antiAfk or false
+        AutoWhisperConfig.debug = AutoWhisperConfig.debug or false  -- Replace antiAfk with debug
         AutoWhisperConfig.enabled = AutoWhisperConfig.enabled or false
         AutoWhisperConfig.selectedRaids = AutoWhisperConfig.selectedRaids or {"MC"}
-        AutoWhisperConfig.blacklistWords = AutoWhisperConfig.blacklistWords or {"lfr", "lfg", "guild"}
+        AutoWhisperConfig.blacklistWords = AutoWhisperConfig.blacklistWords or {"lfr", "lfg", "guild", "raids", "recruit", "igrokov", "nabor", " ru ", "wts", "recluta"}
         
         -- Create config UI only once
         if not configFrame then
@@ -530,11 +672,18 @@ initFrame:SetScript("OnEvent", function()
         end
 
         if isTargetChannel then
+            if AutoWhisperConfig.debug then
+                AddDebugMessage("Message received in target channel: " .. channelName, 0, 1, 1)
+            end
+
             -- Check if author is ignored
             local isAuthorIgnored = false
             for _, ignoredAuthor in ipairs(ignoredAuthors) do
                 if author == ignoredAuthor then
                     isAuthorIgnored = true
+                    if AutoWhisperConfig.debug then
+                        AddDebugMessage("Author " .. author .. " is ignored", 1, 0.5, 0)
+                    end
                     break
                 end
             end
@@ -547,47 +696,55 @@ initFrame:SetScript("OnEvent", function()
                 for _, ignoredMsg in ipairs(ignoredMessages) do
                     if message == ignoredMsg then
                         isIgnored = true
+                        if AutoWhisperConfig.debug then
+                            AddDebugMessage("Message is in ignore list", 1, 0.5, 0)
+                        end
                         break
                     end
                 end
 
                 -- Only proceed if message is not ignored
                 if not isIgnored then
-                    -- Check if message contains blacklisted words
+                    -- Check blacklist
                     local containsBlacklist = false
                     for _, word in ipairs(AutoWhisperConfig.blacklistWords or {}) do
                         if string.find(message, string.lower(word)) then
                             containsBlacklist = true
+                            if AutoWhisperConfig.debug then
+                                AddDebugMessage("Message contains blacklisted word: " .. word, 1, 0.5, 0)
+                            end
                             break
                         end
                     end
                     
-                    -- Check if message contains any of the selected raids
+                    -- Check raids
                     local containsRaid = false
+                    local foundRaid = ""
                     for _, raid in ipairs(AutoWhisperConfig.selectedRaids or {}) do
                         if string.find(message, string.lower(raid)) then
                             containsRaid = true
+                            foundRaid = raid
+                            if AutoWhisperConfig.debug then
+                                AddDebugMessage("Message contains selected raid: " .. raid, 0, 1, 0)
+                            end
                             break
                         end
                     end
                     
                     if not containsBlacklist and containsRaid then
-                        -- Check cooldown
-                        if currentTime - lastWhisperTime >= AutoWhisperConfig.cooldown then
-                            -- Add message to pending queue instead of showing immediately
-                            table.insert(pendingMessages, {
-                                message = arg1,
-                                author = author,
-                                time = currentTime
-                            })
-                            
-                            -- Only show dialog if it's not already visible
-                            if not dialogFrame or not dialogFrame:IsVisible() then
-                                ShowNextPendingMessage()
-                            end
-                        else
-                            local remainingTime = math.ceil(AutoWhisperConfig.cooldown - (currentTime - lastWhisperTime))
-                            DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: On cooldown for " .. remainingTime .. " seconds", 1, 0.5, 0)
+                        if AutoWhisperConfig.debug then
+                            AddDebugMessage("Message accepted - Author: " .. author .. ", Raid: " .. foundRaid, 0, 1, 0)
+                        end
+                        -- Add message to pending queue instead of showing immediately
+                        table.insert(pendingMessages, {
+                            message = arg1,
+                            author = author,
+                            time = currentTime
+                        })
+                        
+                        -- Only show dialog if it's not already visible
+                        if not dialogFrame or not dialogFrame:IsVisible() then
+                            ShowNextPendingMessage()
                         end
                     end
                 end
@@ -604,9 +761,7 @@ chatFrame:RegisterEvent("PLAYER_FLAGS_CHANGED")
 chatFrame:SetScript("OnEvent", OnEvent) 
 DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: selectedRaids = " .. tostring(AutoWhisperConfig.selectedRaids), 1, 1, 0)
 
--- Create slash command to show/hide the config
-SLASH_AUTOWHISPER1 = "/aw"
-SLASH_AUTOWHISPER2 = "/autowhisper"
+
 
 SlashCmdList["AUTOWHISPER"] = function(msg)
     if configFrame and configFrame:IsVisible() then
@@ -616,34 +771,78 @@ SlashCmdList["AUTOWHISPER"] = function(msg)
     end
 end
 
--- Anti AFK timer
-local antiAfkTimer = CreateFrame("Frame")
-antiAfkTimer:Hide()
-antiAfkTimer:SetScript("OnUpdate", function()
-    DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: AutoWhisperConfig = " .. tostring(AutoWhisperConfig), 1, 1, 0)
-    if not AutoWhisperConfig.antiAfk then
-        this:Hide()
-        return
-    end
+-- Add this function after other frame creation functions
+local function CreateDebugFrame()
+    local frame = CreateFrame("Frame", "AutoWhisperDebugFrame", UIParent)
+    frame:SetWidth(400)
+    frame:SetHeight(300)
+    frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    frame:EnableMouse(true)
+    frame:SetMovable(true)
     
-    this.elapsed = (this.elapsed or 0) + arg1
-    if this.elapsed < 60 then return end
-    this.elapsed = 0
+    -- Add background
+    frame:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true,
+        tileSize = 32,
+        edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+
+    -- Add title
+    local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOP", 0, -15)
+    title:SetText("Debug Messages")
+
+    -- Create scrollframe for messages
+    local scrollFrame = CreateFrame("ScrollFrame", "AutoWhisperDebugScrollFrame", frame, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", 20, -40)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -40, 40)
+
+    -- Create content frame
+    local content = CreateFrame("Frame", nil, scrollFrame)
+    content:SetWidth(scrollFrame:GetWidth())
+    content:SetHeight(scrollFrame:GetHeight())
+    scrollFrame:SetScrollChild(content)
     
-    -- Random movement to prevent AFK
-    local movements = {
-        JumpOrAscendStart,
-        function() 
-            TurnLeftStart()
-            C_Timer.After(0.1, TurnLeftStop)
-        end,
-        function()
-            TurnRightStart()
-            C_Timer.After(0.1, TurnRightStop)
-        end
-    }
-    
-    local randomMove = movements[math.random(1, 3)]
-    randomMove()
-end)
+    -- Message text
+    local messageText = content:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    messageText:SetPoint("TOPLEFT", 0, 0)
+    messageText:SetWidth(scrollFrame:GetWidth() - 20)
+    messageText:SetJustifyH("LEFT")
+    frame.messageText = messageText
+
+    -- Close button
+    local closeButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    closeButton:SetWidth(80)
+    closeButton:SetHeight(25)
+    closeButton:SetPoint("BOTTOM", 0, 15)
+    closeButton:SetText("Close")
+    closeButton:SetScript("OnClick", function()
+        frame:Hide()
+    end)
+
+    -- Clear button
+    local clearButton = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    clearButton:SetWidth(80)
+    clearButton:SetHeight(25)
+    clearButton:SetPoint("BOTTOMLEFT", 20, 15)
+    clearButton:SetText("Clear")
+    clearButton:SetScript("OnClick", function()
+        debugMessages = {}
+        frame.messageText:SetText("")
+    end)
+
+    -- Make frame draggable
+    frame:SetScript("OnMouseDown", function()
+        this:StartMoving()
+    end)
+    frame:SetScript("OnMouseUp", function()
+        this:StopMovingOrSizing()
+    end)
+
+    frame:Hide()
+    return frame
+end
 
