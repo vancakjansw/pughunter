@@ -7,11 +7,11 @@ local ignoredAuthors = {}
 local pendingMessages = {}
 local debugMessages = {}
 local debugFrame = nil
-AutoWhisperConfig = AutoWhisperConfig or {}
+PugHunterConfig = PugHunterConfig or {}
 
 -- Debug message function
 local function AddDebugMessage(message, r, g, b)
-    if not AutoWhisperConfig.debug then return end
+    if not PugHunterConfig.debug then return end
     
     -- Add timestamp to message
     local timestamp = date("%H:%M:%S")
@@ -30,8 +30,14 @@ local function AddDebugMessage(message, r, g, b)
 end
 
 -- Create slash command to show/hide the config
-SLASH_AUTOWHISPER1 = "/pg"
-SLASH_AUTOWHISPER2 = "/pughunter"
+SLASH_PUGHUNTER1 = "/pg"
+SLASH_PUGHUNTER2 = "/pughunter"
+
+-- Add this near the top of the file, after the initial variable declarations
+local function GetDefaultReplyMessage()
+    -- Set default whisper reply message
+    return "Hi! I'm interested in joining. Please invite."
+end
 
 -- Add at the top with other local variables and utility functions
 local function trim(s)
@@ -40,47 +46,47 @@ local function trim(s)
     return string.gsub(s, "%s+$", "")
 end
 
--- Define raid list globally
+-- Update the raid list to support multiple abbreviations
 local raidList = {
     {
         name = "Upper Blackrock Spire",
-        abbreviation = "UBRS"
+        abbreviation = {"UBRS"}
     },
     {
         name = "Zul'Gurub",
-        abbreviation = "ZG"
+        abbreviation = {"ZG", "ZG15", "ZG20"}
     },
     {
         name = "Ruins of Ahn'Qiraj",
-        abbreviation = "AQ20"
+        abbreviation = {"AQ20", "AQ15"}
     },
     {
         name = "Molten Core",
-        abbreviation = "MC"
+        abbreviation = {"MC"}
     },
     {
         name = "Onyxia's Lair",
-        abbreviation = "Ony"
+        abbreviation = {"ONY", "ONY15"}
     },
     {
         name = "Blackwing Lair",
-        abbreviation = "BWL"
+        abbreviation = {"BWL", "BWL25"}
     },
     {
         name = "Temple of Ahn'Qiraj",
-        abbreviation = "AQ40"
+        abbreviation = {"AQ40", "AQ35"}
     },
     {
         name = "Karazhan 10 + 40",
-        abbreviation = "KARA"
+        abbreviation = {"KARA", " KZ "}
     },
     {
         name = "Emerald Dream",
-        abbreviation = " ES"
+        abbreviation = {" ES"}
     },
     {
         name = "Naxxramas",
-        abbreviation = "naxx"
+        abbreviation = {"NAXX"}
     }
 }
 
@@ -123,15 +129,15 @@ local function CreateRaidCheckboxes(frame)
                 yPos = startY + ((i-1) * yOffset)
             end
             
-            local checkbox = CreateFrame("CheckButton", "AutoWhisperRaid"..i, checkboxGroup, "UICheckButtonTemplate")
+            local checkbox = CreateFrame("CheckButton", "PugHunterRaid"..i, checkboxGroup, "UICheckButtonTemplate")
             checkbox:SetPoint("TOPLEFT", xPos, yPos)
             
             local text = getglobal(checkbox:GetName().."Text")
             text:SetText(raid.name)
             
             -- Set initial state
-            if AutoWhisperConfig.selectedRaids then
-                for _, selectedRaid in pairs(AutoWhisperConfig.selectedRaids) do
+            if PugHunterConfig.selectedRaids then
+                for _, selectedRaid in pairs(PugHunterConfig.selectedRaids) do
                     if selectedRaid == raid.abbreviation then
                         checkbox:SetChecked(true)
                         break
@@ -144,27 +150,37 @@ local function CreateRaidCheckboxes(frame)
                 local isChecked = checkbox:GetChecked()
                 
                 -- Ensure selectedRaids exists
-                AutoWhisperConfig.selectedRaids = AutoWhisperConfig.selectedRaids or {}
+                PugHunterConfig.selectedRaids = PugHunterConfig.selectedRaids or {}
                 
                 if isChecked then
-                    table.insert(AutoWhisperConfig.selectedRaids, raid.abbreviation)
-                    DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Added raid - " .. raid.name, 0, 1, 0)
+                    -- Always use first abbreviation when saving
+                    local mainAbbrev = type(raid.abbreviation) == "table" and raid.abbreviation[1] or raid.abbreviation
+                    table.insert(PugHunterConfig.selectedRaids, mainAbbrev)
+                    DEFAULT_CHAT_FRAME:AddMessage("PugHunter: Added raid - " .. raid.name, 0, 1, 0)
                 else
-                    for k, v in pairs(AutoWhisperConfig.selectedRaids) do
-                        if v == raid.abbreviation then
-                            table.remove(AutoWhisperConfig.selectedRaids, k)
+                    for k, v in pairs(PugHunterConfig.selectedRaids) do
+                        -- Check against all possible abbreviations when removing
+                        if type(raid.abbreviation) == "table" then
+                            for _, abbrev in ipairs(raid.abbreviation) do
+                                if v == abbrev then
+                                    table.remove(PugHunterConfig.selectedRaids, k)
+                                    break
+                                end
+                            end
+                        elseif v == raid.abbreviation then
+                            table.remove(PugHunterConfig.selectedRaids, k)
                             break
                         end
                     end
-                    DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Removed raid - " .. raid.name, 1, 0, 0)
+                    DEFAULT_CHAT_FRAME:AddMessage("PugHunter: Removed raid - " .. raid.name, 1, 0, 0)
                 end
                 
                 -- Debug output for selected raids
                 local selectedRaidsDebug = ""
-                for _, selectedRaid in pairs(AutoWhisperConfig.selectedRaids) do
+                for _, selectedRaid in pairs(PugHunterConfig.selectedRaids) do
                     selectedRaidsDebug = selectedRaidsDebug .. selectedRaid .. ", "
                 end
-                DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Current raids - " .. selectedRaidsDebug, 0, 1, 1)
+                DEFAULT_CHAT_FRAME:AddMessage("PugHunter: Current raids - " .. selectedRaidsDebug, 0, 1, 1)
             end)
         end
     end
@@ -175,7 +191,7 @@ end
 -- Create configuration GUI
 local function CreateConfigUI()
     -- Create the main frame
-    local frame = CreateFrame("Frame", "AutoWhisperConfigFrame", UIParent)
+    local frame = CreateFrame("Frame", "PugHunterConfigFrame", UIParent)
     frame:SetWidth(500)
     frame:SetHeight(440)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -254,27 +270,27 @@ local function CreateConfigUI()
     local toolsOffset = -220
 
     -- Create input fields for each setting
-    local replyMessageEdit = CreateInputField("Reply Message", toolsOffset, AutoWhisperConfig.replyMessage or "", "replyMessage")
+    local replyMessageEdit = CreateInputField("Reply Message", toolsOffset, PugHunterConfig.replyMessage or "", "replyMessage")
     local channelNamesEdit = CreateInputField("Channel Names", toolsOffset-30,
-        AutoWhisperConfig.targetChannelNames and table.concat(AutoWhisperConfig.targetChannelNames, ",") or "World,LookingForGroup", 
+        PugHunterConfig.targetChannelNames and table.concat(PugHunterConfig.targetChannelNames, ",") or "World,LookingForGroup", 
         "targetChannelNames")
     local blacklistEdit = CreateInputField("Blacklist Words", toolsOffset-60,
-        AutoWhisperConfig.blacklistWords and table.concat(AutoWhisperConfig.blacklistWords, ",") or "lfr,lfg,guild,raids,recruit,igrokov,nabor, ru ,wts, 'recluta",
+        PugHunterConfig.blacklistWords and table.concat(PugHunterConfig.blacklistWords, ",") or "lfr,lfg,guild,raids,recruit,igrokov,nabor, ru ,wts, 'recluta",
         "blacklistWords")
     
     -- Create auto join checkbox
-    local autoJoinCheckbox = CreateFrame("CheckButton", "AutoWhisperAutoJoinCheckbox", frame, "UICheckButtonTemplate")
+    local autoJoinCheckbox = CreateFrame("CheckButton", "PugHunterAutoJoinCheckbox", frame, "UICheckButtonTemplate")
     autoJoinCheckbox:SetPoint("TOPLEFT", 20, toolsOffset-90)
-    autoJoinCheckbox:SetChecked(AutoWhisperConfig.autoJoin)
+    autoJoinCheckbox:SetChecked(PugHunterConfig.autoJoin)
     
     local autoJoinText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     autoJoinText:SetPoint("LEFT", autoJoinCheckbox, "RIGHT", 5, 0)
     autoJoinText:SetText("Auto accept group invites")
     
     -- Add debug checkbox
-    local debugCheckbox = CreateFrame("CheckButton", "AutoWhisperDebugCheckbox", frame, "UICheckButtonTemplate")
+    local debugCheckbox = CreateFrame("CheckButton", "PugHunterDebugCheckbox", frame, "UICheckButtonTemplate")
     debugCheckbox:SetPoint("TOPLEFT", autoJoinCheckbox, "BOTTOMLEFT", 0, -5)
-    debugCheckbox:SetChecked(AutoWhisperConfig.debug)
+    debugCheckbox:SetChecked(PugHunterConfig.debug)
     
     local debugText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     debugText:SetPoint("LEFT", debugCheckbox, "RIGHT", 5, 0)
@@ -288,7 +304,7 @@ local function CreateConfigUI()
     saveButton:SetText("Save")
     saveButton:SetScript("OnClick", function()
         -- Save reply message with default
-        AutoWhisperConfig.replyMessage = replyMessageEdit:GetText() or "hi, mm hunt?"
+        PugHunterConfig.replyMessage = replyMessageEdit:GetText() or GetDefaultReplyMessage()
 
         -- Save channel names
         local channelNames = {}
@@ -302,7 +318,7 @@ local function CreateConfigUI()
         if table.getn(channelNames) == 0 then
             channelNames = {"World", "LookingForGroup"}
         end
-        AutoWhisperConfig.targetChannelNames = channelNames
+        PugHunterConfig.targetChannelNames = channelNames
 
         -- Save blacklist words
         local blacklist = {}
@@ -316,13 +332,13 @@ local function CreateConfigUI()
         if table.getn(blacklist) == 0 then
             blacklist = {"lfr", "lfg", "guild", "raids", "recruit", "igrokov", "nabor", " ru ", "wts", "recluta"}
         end
-        AutoWhisperConfig.blacklistWords = blacklist
+        PugHunterConfig.blacklistWords = blacklist
 
         -- Save checkbox states
-        AutoWhisperConfig.autoJoin = autoJoinCheckbox:GetChecked()
-        AutoWhisperConfig.debug = debugCheckbox:GetChecked()
+        PugHunterConfig.autoJoin = autoJoinCheckbox:GetChecked()
+        PugHunterConfig.debug = debugCheckbox:GetChecked()
 
-        DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: Settings saved!", 0, 1, 0)
+        DEFAULT_CHAT_FRAME:AddMessage("PugHunter: Settings saved!", 0, 1, 0)
     end)
     
     -- Create close button
@@ -354,7 +370,7 @@ local CreateDialogFrame
 
 -- Define CreateDialogFrame first
 CreateDialogFrame = function()
-    local frame = CreateFrame("Frame", "AutoWhisperDialogFrame", UIParent)
+    local frame = CreateFrame("Frame", "PugHunterDialogFrame", UIParent)
     frame:SetWidth(300)
     frame:SetHeight(200)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -416,7 +432,7 @@ CreateDialogFrame = function()
     ignoreButton:SetScript("OnEnter", function()
         GameTooltip:SetOwner(this, "ANCHOR_TOP")
         GameTooltip:AddLine("Skip current message", 1, 1, 1)
-        GameTooltip:AddLine("If message changes it will be displayed again", 0.8, 0.8, 0.8)
+        GameTooltip:AddLine("If author changes message it will be displayed again", 0.8, 0.8, 0.8)
         GameTooltip:Show()
     end)
     ignoreButton:SetScript("OnLeave", function()
@@ -465,7 +481,7 @@ ShowNextPendingMessage = function()
     dialogFrame.authorText:SetText("From: " .. currentMsg.author)
 
     dialogFrame.sendButton:SetScript("OnClick", function()
-        SendChatMessage(AutoWhisperConfig.replyMessage, "WHISPER", nil, currentMsg.author)
+        SendChatMessage(PugHunterConfig.replyMessage, "WHISPER", nil, currentMsg.author)
         table.remove(pendingMessages, 1)
         dialogFrame:Hide()
         
@@ -491,7 +507,7 @@ ShowNextPendingMessage = function()
                 end
             end
             
-            if AutoWhisperConfig.debug then
+            if PugHunterConfig.debug then
                 AddDebugMessage("Message skipped", 1, 0.5, 0)
             end
             
@@ -521,7 +537,7 @@ ShowNextPendingMessage = function()
                 end
             end
             
-            if AutoWhisperConfig.debug then
+            if PugHunterConfig.debug then
                 AddDebugMessage("Author " .. currentMsg.author .. " skipped", 1, 0.5, 0)
             end
             
@@ -539,7 +555,7 @@ end
 
 -- Create Minimap Button
 local function CreateMinimapButton()
-    local button = CreateFrame("Button", "AutoWhisperMinimapButton", Minimap)
+    local button = CreateFrame("Button", "PugHunterMinimapButton", Minimap)
     button:SetWidth(32)
     button:SetHeight(32)
     button:SetFrameStrata("MEDIUM")
@@ -551,7 +567,7 @@ local function CreateMinimapButton()
     
     -- Position button on minimap
     local function UpdatePosition()
-        local angle = math.rad(AutoWhisperConfig.minimapPos or 45)
+        local angle = math.rad(PugHunterConfig.minimapPos or 45)
         local x = math.cos(angle) * 80
         local y = math.sin(angle) * 80
         button:SetPoint("CENTER", Minimap, "CENTER", x, y)
@@ -569,7 +585,7 @@ local function CreateMinimapButton()
         local xpos, ypos = this:GetCenter()
         local mapXpos, mapYpos = Minimap:GetCenter()
         local angle = math.deg(math.atan2(ypos - mapYpos, xpos - mapXpos))
-        AutoWhisperConfig.minimapPos = angle
+        PugHunterConfig.minimapPos = angle
         UpdatePosition()
     end)
     
@@ -585,7 +601,7 @@ local function CreateMinimapButton()
     -- Show tooltip on hover
     button:SetScript("OnEnter", function()
         GameTooltip:SetOwner(this, "ANCHOR_LEFT")
-        GameTooltip:AddLine("AutoWhisper")
+        GameTooltip:AddLine("PugHunter")
         GameTooltip:AddLine("Click to toggle config", 0.8, 0.8, 0.8)
         GameTooltip:AddLine("Drag to move", 0.8, 0.8, 0.8)
         GameTooltip:Show()
@@ -603,7 +619,7 @@ local function CreateMinimapButton()
             else
                 configFrame:Show()
             end
-        elseif button == "RightButton" and AutoWhisperConfig.debug then
+        elseif button == "RightButton" and PugHunterConfig.debug then
             if not debugFrame then
                 debugFrame = CreateDebugFrame()
             end
@@ -628,20 +644,20 @@ initFrame:RegisterEvent("CHAT_MSG_CHANNEL")
 -- Initialize saved variables
 initFrame:SetScript("OnEvent", function()
     if event == "VARIABLES_LOADED" then
-        -- Ensure AutoWhisperConfig exists and has default values
-        if not AutoWhisperConfig then
-            AutoWhisperConfig = {}
+        -- Ensure PugHunterConfig exists and has default values
+        if not PugHunterConfig then
+            PugHunterConfig = {}
         end
         
         -- Set default values for any missing config options
-        AutoWhisperConfig.targetChannelNames = AutoWhisperConfig.targetChannelNames or {"World", "LookingForGroup"}
-        AutoWhisperConfig.replyMessage = AutoWhisperConfig.replyMessage or "hi, mm hunt?"
-        AutoWhisperConfig.minimapPos = AutoWhisperConfig.minimapPos or 45
-        AutoWhisperConfig.autoJoin = AutoWhisperConfig.autoJoin or false
-        AutoWhisperConfig.debug = AutoWhisperConfig.debug or false
-        AutoWhisperConfig.enabled = AutoWhisperConfig.enabled or false
-        AutoWhisperConfig.selectedRaids = AutoWhisperConfig.selectedRaids or {"MC"}
-        AutoWhisperConfig.blacklistWords = AutoWhisperConfig.blacklistWords or {"lfr", "lfg", "guild", "raids", "recruit", "igrokov", "nabor", " ru ", "wts", "recluta"}
+        PugHunterConfig.targetChannelNames = PugHunterConfig.targetChannelNames or {"World", "LookingForGroup"}
+        PugHunterConfig.replyMessage = PugHunterConfig.replyMessage or GetDefaultReplyMessage()
+        PugHunterConfig.minimapPos = PugHunterConfig.minimapPos or 45
+        PugHunterConfig.autoJoin = PugHunterConfig.autoJoin or false
+        PugHunterConfig.debug = PugHunterConfig.debug or false
+        PugHunterConfig.enabled = PugHunterConfig.enabled or false
+        PugHunterConfig.selectedRaids = PugHunterConfig.selectedRaids or {"MC"}
+        PugHunterConfig.blacklistWords = PugHunterConfig.blacklistWords or {"lfr", "lfg", "guild", "raids", "recruit", "igrokov", "nabor", " ru ", "wts", "recluta"}
         
         -- Create config UI only once
         if not configFrame then
@@ -654,7 +670,7 @@ initFrame:SetScript("OnEvent", function()
         end
         
     elseif event == "CHAT_MSG_CHANNEL" then
-        -- if not AutoWhisperConfig.enabled then return end
+        -- if not PugHunterConfig.enabled then return end
         
         local message = string.lower(arg1)
         local author = arg2
@@ -663,7 +679,7 @@ initFrame:SetScript("OnEvent", function()
 
         -- Check if the channel is in our list of target channels
         local isTargetChannel = false
-        for _, targetChannel in ipairs(AutoWhisperConfig.targetChannelNames or {}) do
+        for _, targetChannel in ipairs(PugHunterConfig.targetChannelNames or {}) do
             if channelName == targetChannel then
                 isTargetChannel = true
                 break
@@ -671,7 +687,7 @@ initFrame:SetScript("OnEvent", function()
         end
 
         if isTargetChannel then
-            if AutoWhisperConfig.debug then
+            if PugHunterConfig.debug then
                 AddDebugMessage("Message received in target channel: " .. channelName, 0, 1, 1)
             end
 
@@ -680,7 +696,7 @@ initFrame:SetScript("OnEvent", function()
             for _, ignoredAuthor in ipairs(ignoredAuthors) do
                 if author == ignoredAuthor then
                     isAuthorIgnored = true
-                    if AutoWhisperConfig.debug then
+                    if PugHunterConfig.debug then
                         AddDebugMessage("Author " .. author .. " is ignored", 1, 0.5, 0)
                     end
                     break
@@ -695,7 +711,7 @@ initFrame:SetScript("OnEvent", function()
                 for _, ignoredMsg in ipairs(ignoredMessages) do
                     if message == ignoredMsg then
                         isIgnored = true
-                        if AutoWhisperConfig.debug then
+                        if PugHunterConfig.debug then
                             AddDebugMessage("Message is in ignore list", 1, 0.5, 0)
                         end
                         break
@@ -706,10 +722,10 @@ initFrame:SetScript("OnEvent", function()
                 if not isIgnored then
                     -- Check blacklist
                     local containsBlacklist = false
-                    for _, word in ipairs(AutoWhisperConfig.blacklistWords or {}) do
+                    for _, word in ipairs(PugHunterConfig.blacklistWords or {}) do
                         if string.find(message, string.lower(word)) then
                             containsBlacklist = true
-                            if AutoWhisperConfig.debug then
+                            if PugHunterConfig.debug then
                                 AddDebugMessage("Message contains blacklisted word: " .. word, 1, 0.5, 0)
                             end
                             break
@@ -719,19 +735,27 @@ initFrame:SetScript("OnEvent", function()
                     -- Check raids
                     local containsRaid = false
                     local foundRaid = ""
-                    for _, raid in ipairs(AutoWhisperConfig.selectedRaids or {}) do
-                        if string.find(message, string.lower(raid)) then
-                            containsRaid = true
-                            foundRaid = raid
-                            if AutoWhisperConfig.debug then
-                                AddDebugMessage("Message contains selected raid: " .. raid, 0, 1, 0)
+                    for _, selectedRaidAbbrev in ipairs(PugHunterConfig.selectedRaids or {}) do
+                        for _, raid in ipairs(raidList) do
+                            if type(raid.abbreviation) == "table" then
+                                for _, abbrev in ipairs(raid.abbreviation) do
+                                    if string.find(message, string.lower(abbrev)) then
+                                        containsRaid = true
+                                        foundRaid = raid.name
+                                        break
+                                    end
+                                end
+                            elseif string.find(message, string.lower(raid.abbreviation)) then
+                                containsRaid = true
+                                foundRaid = raid.name
                             end
-                            break
+                            if containsRaid then break end
                         end
+                        if containsRaid then break end
                     end
                     
                     if not containsBlacklist and containsRaid then
-                        if AutoWhisperConfig.debug then
+                        if PugHunterConfig.debug then
                             AddDebugMessage("Message accepted - Author: " .. author .. ", Raid: " .. foundRaid, 0, 1, 0)
                         end
                         -- Add message to pending queue instead of showing immediately
@@ -758,11 +782,11 @@ chatFrame:RegisterEvent("CHAT_MSG_CHANNEL")
 chatFrame:RegisterEvent("PARTY_INVITE_REQUEST")
 chatFrame:RegisterEvent("PLAYER_FLAGS_CHANGED")
 chatFrame:SetScript("OnEvent", OnEvent) 
-DEFAULT_CHAT_FRAME:AddMessage("AutoWhisper: selectedRaids = " .. tostring(AutoWhisperConfig.selectedRaids), 1, 1, 0)
+DEFAULT_CHAT_FRAME:AddMessage("PugHunter: selectedRaids = " .. tostring(PugHunterConfig.selectedRaids), 1, 1, 0)
 
 
 
-SlashCmdList["AUTOWHISPER"] = function(msg)
+SlashCmdList["PUGHUNTER"] = function(msg)
     if configFrame and configFrame:IsVisible() then
         configFrame:Hide()
     elseif configFrame then
@@ -772,7 +796,7 @@ end
 
 -- Add this function after other frame creation functions
 local function CreateDebugFrame()
-    local frame = CreateFrame("Frame", "AutoWhisperDebugFrame", UIParent)
+    local frame = CreateFrame("Frame", "PugHunterDebugFrame", UIParent)
     frame:SetWidth(400)
     frame:SetHeight(300)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
@@ -795,7 +819,7 @@ local function CreateDebugFrame()
     title:SetText("Debug Messages")
 
     -- Create scrollframe for messages
-    local scrollFrame = CreateFrame("ScrollFrame", "AutoWhisperDebugScrollFrame", frame, "UIPanelScrollFrameTemplate")
+    local scrollFrame = CreateFrame("ScrollFrame", "PugHunterDebugScrollFrame", frame, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", 20, -40)
     scrollFrame:SetPoint("BOTTOMRIGHT", -40, 40)
 

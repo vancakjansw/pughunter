@@ -1,0 +1,8 @@
+## Interface: 11200
+## Title: PugHunter
+## Notes: Let's hunt your PUG
+## Author: Jan Vancak
+## Version: 0.9
+## SavedVariables: PugHunterConfig
+
+PugHunter.lua
