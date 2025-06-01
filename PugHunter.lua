@@ -50,7 +50,7 @@ local success, err = pcall(function()
 
     local function GetDefaultReplyMessage()
         local _, playerClass = UnitClass("player")
-        return string.format("Ready to join.. [%s]", playerClass)
+        return string.format("Hi, ready to join.. [%s]", playerClass)
     end
 
     local function trim(s)
