@@ -49,7 +49,8 @@ local success, err = pcall(function()
     end
 
     local function GetDefaultReplyMessage()
-        return "Hi! I'm interested in joining. Please invite."
+        local _, playerClass = UnitClass("player")
+        return string.format("Ready to join.. [%s]", playerClass)
     end
 
     local function trim(s)
