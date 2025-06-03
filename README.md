@@ -5,15 +5,24 @@ A World of Warcraft 1.12 (Turtle WoW) addon that helps you find and join PUG rai
 ## Screenshots
 
 ### Raid Finder Window
-![Raid Finder](.github/finder.jpg)
+<p align="center">
+  <img src=".github/finder.jpg" alt="Raid Finder">
+</p>
+
 The main interface shows available raids with options to whisper, skip, or ignore players.
 
 ### Settings Panel
-![Settings Panel](.github/settings.jpg)
+<p align="center">
+  <img src=".github/settings.jpg" alt="Settings Panel">
+</p>
+
 Customize your raid monitoring preferences, channels, blacklist words, and auto-reply messages.
 
 ### Minimap Integration
-![Minimap Button](.github/minimap-button.jpg)
+<p align="center">
+  <img src=".github/minimap-button.jpg" alt="Minimap Button">
+</p>
+
 Quick access through the minimap button - left-click to open settings, right-click to toggle the addon.
 
 ## Features
